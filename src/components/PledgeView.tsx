@@ -101,9 +101,15 @@ export function PledgeView() {
           The digits you type yourself follow the same rules. The board rejects
           entries that clash with the candidate model, and after every accepted
           entry it replays forced logic to warn you when it can prove a
-          contradiction — with a one-tap undo. But a typed digit is your move,
-          not a proven deduction: the move log keeps them labelled as yours,
-          and clearing one also rewinds the later moves that depended on it.
+          contradiction — with a one-tap undo. Every entry is then classified:
+          if a naked or hidden single forces the digit, it is proven; otherwise
+          it is an assumption. Assumptions stay playable, but the panel lists
+          them and every later hint says it is conditional on them. The app will
+          not certify a solution that rests on an assumption, because checking
+          it would require the guessing this dojo refuses to do. A typed digit
+          is your move, not a theorem: the move log keeps them labelled as
+          yours, and clearing one also rewinds the later moves that depended on
+          it.
         </p>
       </section>
     </section>

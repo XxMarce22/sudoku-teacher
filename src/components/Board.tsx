@@ -19,6 +19,7 @@ interface BoardProps {
   showCandidates: boolean
   feedback: InputFeedback | null
   manualCells: ReadonlySet<number>
+  assumedCells: ReadonlySet<number>
   onSelect: (cell: number | null) => void
   onInputDigit: (digit: number) => void
   onClearCell: () => void
@@ -46,6 +47,7 @@ export function Board({
   showCandidates,
   feedback,
   manualCells,
+  assumedCells,
   onSelect,
   onInputDigit,
   onClearCell,
@@ -63,6 +65,7 @@ export function Board({
   for (const group of pending?.colorGroups ?? []) {
     for (const cell of group.cells) colorByCell.set(cell, group.label)
   }
+  const pendingUnitCells = new Set<number>(pending?.unit?.cells ?? [])
 
   const focusCell = (cell: number) => {
     const wrapped = Math.min(80, Math.max(0, cell))
@@ -125,6 +128,7 @@ export function Board({
         const isGiven = initialGrid[cell] !== 0
         const isSolvedCell = !isGiven && value !== 0
         const isManualCell = !isGiven && manualCells.has(cell) && value !== 0
+        const isAssumedCell = !isGiven && assumedCells.has(cell) && value !== 0
         const isPeer = selected !== null && selected !== cell && PEERS[selected].includes(cell)
         const eliminationSet = eliminatedDigits.get(cell)
         const placement = placementByCell.get(cell)
@@ -141,6 +145,8 @@ export function Board({
         if (isGiven) classes.push('cell--given')
         if (isSolvedCell) classes.push('cell--solved')
         if (isManualCell) classes.push('cell--manual')
+        if (isAssumedCell) classes.push('cell--assumed')
+        if (pendingUnitCells.has(cell)) classes.push('cell--unit')
         if (isPeer) classes.push('cell--peer')
         if (selected === cell) classes.push('cell--selected')
         if (primary.has(cell)) classes.push('cell--primary')
@@ -160,9 +166,11 @@ export function Board({
           isGiven
             ? `given ${value}`
             : value !== 0
-              ? isManualCell
-                ? `entered by you ${value}`
-                : `solved ${value}`
+              ? isAssumedCell
+                ? `entered by you, unproven assumption, ${value}`
+                : isManualCell
+                  ? `entered by you ${value}`
+                  : `solved ${value}`
               : placement !== undefined
                 ? `suggested ${placement}`
                 : 'empty',

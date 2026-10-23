@@ -18,6 +18,7 @@ import {
   searchTechniqueExample,
 } from './lib/exampleSearch'
 import {
+  assumedPlacedCells,
   createSession,
   manualPlacedCells,
   sessionReducer,
@@ -189,6 +190,10 @@ export default function App() {
     () => (session ? manualPlacedCells(session) : new Set<number>()),
     [session],
   )
+  const assumedCells = useMemo(
+    () => (session ? assumedPlacedCells(session) : new Set<number>()),
+    [session],
+  )
 
   return (
     <div className="app">
@@ -262,6 +267,7 @@ export default function App() {
                   showCandidates={session.showCandidates}
                   feedback={session.inputFeedback}
                   manualCells={manualCells}
+                  assumedCells={assumedCells}
                   onSelect={(cell) => dispatch({ type: 'select', cell })}
                   onInputDigit={(digit) => dispatch({ type: 'input-digit', digit })}
                   onClearCell={() => dispatch({ type: 'clear-cell' })}

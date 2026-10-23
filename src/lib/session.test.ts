@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { FIXTURE_PUZZLES, type FixturePuzzle } from './__fixtures__/puzzles'
-import { createSession, manualPlacedCells, sessionReducer, type Session } from './session'
+import {
+  assumedManualMoves,
+  assumedPlacedCells,
+  createSession,
+  manualPlacedCells,
+  sessionReducer,
+  type Session,
+} from './session'
 import {
   applyManualDigit,
   createSolverState,
@@ -8,6 +15,7 @@ import {
   findDirectContradiction,
   findNextStep,
   findProvableContradiction,
+  findSinglePlacementProof,
 } from './solver'
 import {
   digitMask,
@@ -162,6 +170,38 @@ describe('solve all', () => {
     expect(current.pending).toBeNull()
     expect(current.note).toMatch(/will not guess/i)
   })
+
+  it('blames the assumption when unproven entries block the toolkit', () => {
+    const session = createSession(livePuzzle(stalling))
+    const typed = sessionReducer(
+      sessionReducer(session, { type: 'select', cell: 1 }),
+      { type: 'input-digit', digit: 6 },
+    )
+    const attempted = sessionReducer(typed, { type: 'solve-all' })
+
+    expect(isSolved(attempted.current.grid)).toBe(false)
+    expect(attempted.note).toMatch(/unproven entry may also be wrong/i)
+    expect(attempted.note).toMatch(/will not guess/i)
+  })
+
+  it('describes a finished board as conditional when an assumption remains', () => {
+    const base = createSession(livePuzzle(stalling))
+    // Deliberately put the wrong digit on the board: this exercises the copy
+    // that must refuse to certify a solution that rests on an assumption.
+    const filled = [...stalling.solution]
+    filled[1] = 6
+    const crafted: Session = {
+      ...base,
+      current: { grid: filled, candidates: Array.from({ length: 81 }, () => 0) },
+      history: [
+        { kind: 'manual', cell: 1, digit: 6, provenBy: null, before: base.current },
+      ],
+    }
+
+    const finished = sessionReducer(crafted, { type: 'show-next' })
+    expect(finished.note).toMatch(/only if that assumption is correct/i)
+    expect(finished.note).toMatch(/cannot certify/i)
+  })
 })
 
 describe('puzzle controls', () => {
@@ -212,6 +252,10 @@ describe('keyboard input', () => {
     expect(typed.inputFeedback?.kind).toBe('placed')
     if (typed.inputFeedback?.kind === 'placed') {
       expect(typed.inputFeedback.contradiction).toBeNull()
+      // The app records whether a documented single justifies the entry.
+      expect(typed.inputFeedback.provenBy).toBe(
+        findSinglePlacementProof(session.current, cell, digit),
+      )
     }
     expect(manualPlacedCells(typed).has(cell)).toBe(true)
 
@@ -219,6 +263,76 @@ describe('keyboard input', () => {
     expect(undone.current.grid).toEqual(session.current.grid)
     expect(undone.current.candidates).toEqual(session.current.candidates)
     expect(undone.inputFeedback).toBeNull()
+  })
+
+  it('treats a wrong-but-unprovable digit as an assumption, not a fact', () => {
+    // This stalling fixture reproduces the reported false hint: typing 6 in
+    // R1C2 (the recorded solution is 5) evades the contradiction probe, and
+    // the naive next hint is "Hidden single 6 in row 2" — which only follows
+    // from the assumption.
+    const session = createSession(livePuzzle(stalling))
+    expect(stalling.grid[1]).toBe(0)
+    expect(stalling.solution[1]).toBe(5)
+
+    const typed = sessionReducer(
+      sessionReducer(session, { type: 'select', cell: 1 }),
+      { type: 'input-digit', digit: 6 },
+    )
+    expect(typed.current.grid[1]).toBe(6)
+    expect(typed.inputFeedback?.kind).toBe('placed')
+    if (typed.inputFeedback?.kind === 'placed') {
+      expect(typed.inputFeedback.contradiction).toBeNull()
+      expect(typed.inputFeedback.provenBy).toBeNull()
+      expect(typed.inputFeedback.message).toMatch(/assumption/i)
+    }
+    expect(assumedManualMoves(typed)).toMatchObject([
+      { kind: 'manual', cell: 1, digit: 6, provenBy: null },
+    ])
+    expect(assumedPlacedCells(typed).has(1)).toBe(true)
+
+    const hinted = sessionReducer(typed, { type: 'show-next' })
+    expect(hinted.pending?.technique).toBe('hidden-single')
+    expect(hinted.pending?.title).toBe('Hidden single 6 in row 2')
+    expect(hinted.pending?.placements).toEqual([{ cell: 15, digit: 6 }])
+    // The hint is conditional: the recorded solution says R2C7 is not 6.
+    expect(stalling.solution[15]).not.toBe(6)
+
+    const cleared = sessionReducer(
+      sessionReducer(typed, { type: 'select', cell: 1 }),
+      { type: 'clear-cell' },
+    )
+    expect(assumedManualMoves(cleared)).toEqual([])
+    expect(cleared.current.grid[1]).toBe(0)
+  })
+
+  it('does not mark an entry proven by a naked single as an assumption', () => {
+    const solution = patternSolution()
+    const grid = [...solution]
+    grid[80] = 0
+    const puzzle: LivePuzzle = {
+      grid,
+      meta: {
+        provider: 'test',
+        providerUrl: 'https://example.test/api',
+        difficulty: 'easy',
+        requestedDifficulty: 'easy',
+        fetchedAt: '2026-01-01T00:00:00.000Z',
+      },
+    }
+
+    const session = createSession(puzzle)
+    const typed = sessionReducer(
+      sessionReducer(session, { type: 'select', cell: 80 }),
+      { type: 'input-digit', digit: solution[80] },
+    )
+    expect(typed.history[0]).toMatchObject({ provenBy: 'naked-single' })
+    expect(typed.inputFeedback?.kind).toBe('placed')
+    if (typed.inputFeedback?.kind === 'placed') {
+      expect(typed.inputFeedback.provenBy).toBe('naked-single')
+      expect(typed.inputFeedback.message).toMatch(/naked single/i)
+    }
+    expect(assumedManualMoves(typed)).toEqual([])
+    expect(assumedPlacedCells(typed).size).toBe(0)
   })
 
   it('rejects typing into a given cell or one that already holds a digit', () => {

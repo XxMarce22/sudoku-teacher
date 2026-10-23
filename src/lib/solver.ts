@@ -5,6 +5,7 @@ import {
   COLS,
   PEERS,
   ROWS,
+  UNITS_BY_CELL,
   boxOf,
   cellLabel,
   colOf,
@@ -48,6 +49,8 @@ export interface Step {
   placements: Placement[]
   eliminations: Elimination[]
   colorGroups?: ColorGroup[]
+  /** The unit a hidden single was found in, so the board can highlight it. */
+  unit?: Unit
 }
 
 export interface SolverState {
@@ -65,6 +68,8 @@ export interface ManualMove {
   kind: 'manual'
   cell: number
   digit: number
+  /** The single that proves this entry, or null when it is only an assumption. */
+  provenBy: 'naked-single' | 'hidden-single' | null
   before: SolverState
 }
 
@@ -170,14 +175,37 @@ function findHiddenSingle(state: SolverState): Step | null {
       const cell = positions[0]
       if (popcount(state.candidates[cell]) === 1) continue
 
-      return placementStep(
+      const step = placementStep(
         'hidden-single',
         `Hidden single ${digit} in ${unit.name}`,
         cell,
         digit,
-        `In ${unit.name}, ${digit} has only one possible cell: ${cellLabel(cell)}. No other empty cell in the unit still has ${digit} as a candidate, so the unit's ${digit} must go there.`,
+        `In ${unit.name}, ${digit} can still go in only one of the nine cells: ${cellLabel(cell)}. The other eight no longer have ${digit} as a candidate, so the unit's ${digit} must go there.`,
       )
+      return { ...step, unit }
     }
+  }
+  return null
+}
+
+/**
+ * Returns the documented single that proves this placement on the current
+ * board, or null when the digit is merely a live candidate. Every placement
+ * technique the dojo knows is a naked or hidden single, so this check is
+ * exact for its toolkit.
+ */
+export function findSinglePlacementProof(
+  state: SolverState,
+  cell: number,
+  digit: number,
+): 'naked-single' | 'hidden-single' | null {
+  if (state.grid[cell] !== 0) return null
+  const mask = state.candidates[cell]
+  if (!hasCandidate(mask, digit)) return null
+  if (mask === digitMask(digit)) return 'naked-single'
+  for (const unit of UNITS_BY_CELL[cell]) {
+    const positions = cellsWithDigit(state, unit.cells, digit)
+    if (positions.length === 1 && positions[0] === cell) return 'hidden-single'
   }
   return null
 }

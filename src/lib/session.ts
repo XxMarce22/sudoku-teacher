@@ -6,8 +6,10 @@ import {
   findDirectContradiction,
   findNextStep,
   findProvableContradiction,
+  findSinglePlacementProof,
   type AppliedMove,
   type Contradiction,
+  type ManualMove,
   type SolverState,
   type Step,
 } from './solver'
@@ -35,6 +37,7 @@ export type InputFeedback =
       cell: number
       digit: number
       contradiction: Contradiction | null
+      provenBy: 'naked-single' | 'hidden-single' | null
       message: string
     }
   | { kind: 'rejected'; cell: number; digit: number; message: string }
@@ -100,7 +103,13 @@ export function createSession(
 function solvedNote(history: AppliedMove[]): string {
   if (history.length === 0) return 'This puzzle is already solved.'
   const manual = history.filter((move) => move.kind === 'manual').length
+  const assumed = history.filter(
+    (move) => move.kind === 'manual' && move.provenBy === null,
+  ).length
   const moveWord = history.length === 1 ? 'move' : 'moves'
+  if (assumed > 0) {
+    return `Every cell is filled, but ${assumed} of your entries ${assumed === 1 ? 'was' : 'were'} not proven by a documented technique. The board is solved only if ${assumed === 1 ? 'that assumption is' : 'those assumptions are'} correct — I cannot certify it without guessing.`
+  }
   if (manual === history.length) {
     return `Solved with ${history.length} ${moveWord}, all placed by you — no guessing from the engine.`
   }
@@ -110,8 +119,16 @@ function solvedNote(history: AppliedMove[]): string {
   return `Solved with ${history.length} logical ${moveWord} — no guessing, no backtracking.`
 }
 
-function stuckNote(totalMoves: number): string {
+function stuckNote(totalMoves: number, assumed = 0): string {
+  if (assumed > 0) {
+    return `No move found after ${totalMoves} logical move${totalMoves === 1 ? '' : 's'}. Your ${assumed === 1 ? 'unproven entry may' : `${assumed} unproven entries may`} also be wrong, and a wrong assumption can block every technique. Undo ${assumed === 1 ? 'it' : 'them'} or reset — either way, I will not guess.`
+  }
   return `No move found after ${totalMoves} logical move${totalMoves === 1 ? '' : 's'}. Either this puzzle needs a technique beyond the dojo's toolkit, or it does not have a single solution — some fallback providers do not check. Either way, I will not guess.`
+}
+
+function assumedCount(history: AppliedMove[]): number {
+  return history.filter((move) => move.kind === 'manual' && move.provenBy === null)
+    .length
 }
 
 function contradictionClause(contradiction: Contradiction): string {
@@ -141,6 +158,21 @@ export function manualPlacedCells(session: Session): Set<number> {
     }
   }
   return cells
+}
+
+/** Hand-played entries that no documented technique proves; hints depend on them. */
+export function assumedManualMoves(session: Session): ManualMove[] {
+  return session.history.filter(
+    (move): move is ManualMove =>
+      move.kind === 'manual' &&
+      move.provenBy === null &&
+      session.current.grid[move.cell] === move.digit,
+  )
+}
+
+/** Cells the player filled without a documented proof. */
+export function assumedPlacedCells(session: Session): Set<number> {
+  return new Set(assumedManualMoves(session).map((move) => move.cell))
 }
 
 export function sessionReducer(state: Session, action: SessionAction): Session {
@@ -181,7 +213,7 @@ export function sessionReducer(state: Session, action: SessionAction): Session {
           ...state,
           pending: null,
           inputFeedback: null,
-          note: stuckNote(state.history.length),
+          note: stuckNote(state.history.length, assumedCount(state.history)),
         }
       }
       return {
@@ -239,7 +271,7 @@ export function sessionReducer(state: Session, action: SessionAction): Session {
           ? `This board contradicts itself — ${contradictionClause(contradiction)}. A technique cannot repair a broken board: undo recent entries, or reset.`
           : solved
             ? solvedNote(history)
-            : stuckNote(history.length),
+            : stuckNote(history.length, assumedCount(history)),
         inputFeedback: null,
       }
     }
@@ -352,17 +384,22 @@ export function sessionReducer(state: Session, action: SessionAction): Session {
         }
       }
 
+      const provenBy = findSinglePlacementProof(state.current, cell, digit)
       const current = applyManualDigit(state.current, cell, digit)
       const contradiction = findProvableContradiction(current)
       const history: AppliedMove[] = [
         ...state.history,
-        { kind: 'manual', cell, digit, before: state.current },
+        { kind: 'manual', cell, digit, provenBy, before: state.current },
       ]
       const solved = isSolved(current.grid)
 
-      let message = `Placed ${digit} in ${cellLabel(cell)}. It was a live candidate and no contradiction turned up — but only a documented technique can prove a digit.`
+      let message: string
       if (contradiction) {
         message = `${digit} in ${cellLabel(cell)} was a live candidate, but it leads to a provable contradiction: ${contradictionDeadEnd(contradiction)}. Undo is recommended.`
+      } else if (provenBy) {
+        message = `Placed ${digit} in ${cellLabel(cell)}. That is a ${provenBy === 'naked-single' ? 'naked' : 'hidden'} single — the digit is forced by a documented technique.`
+      } else {
+        message = `Placed ${digit} in ${cellLabel(cell)}. No documented technique proves that digit, and I could not prove a contradiction either. I am treating it as your assumption: later hints are conditional on it, and undo is recommended if you are unsure.`
       }
 
       return {
@@ -371,7 +408,14 @@ export function sessionReducer(state: Session, action: SessionAction): Session {
         history,
         pending: null,
         note: solved ? solvedNote(history) : null,
-        inputFeedback: { kind: 'placed', cell, digit, contradiction, message },
+        inputFeedback: {
+          kind: 'placed',
+          cell,
+          digit,
+          contradiction,
+          provenBy,
+          message,
+        },
       }
     }
 

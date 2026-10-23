@@ -8,6 +8,7 @@ import {
   findDirectContradiction,
   findNextStep,
   findProvableContradiction,
+  findSinglePlacementProof,
   type SolverState,
   type Step,
 } from './solver'
@@ -242,6 +243,40 @@ describe('first techniques on a nearly empty board', () => {
     const step = findNextStep(state)
     expect(step?.technique).toBe('hidden-single')
     expect(step?.placements).toContainEqual({ cell: 0, digit: 8 })
+    expect(step?.unit?.name).toBe('row 1')
+    expect(step?.unit?.cells).toContain(0)
+  })
+})
+
+describe('findSinglePlacementProof', () => {
+  it('recognises a naked single', () => {
+    const grid = Array.from({ length: 81 }, () => 0)
+    for (let col = 1; col <= 8; col += 1) grid[col] = col + 1
+    const state = createSolverState(grid)
+    expect(findSinglePlacementProof(state, 0, 1)).toBe('naked-single')
+    expect(findSinglePlacementProof(state, 0, 2)).toBeNull() // not a candidate
+  })
+
+  it('recognises a hidden single', () => {
+    const grid = Array.from({ length: 81 }, () => 0)
+    grid[14] = 8
+    grid[25] = 8
+    grid[38] = 8
+    grid[55] = 8
+    const state = createSolverState(grid)
+    expect(findSinglePlacementProof(state, 0, 8)).toBe('hidden-single')
+  })
+
+  it('returns null when no single proves the digit', () => {
+    const state = createSolverState(Array.from({ length: 81 }, () => 0))
+    expect(findSinglePlacementProof(state, 40, 5)).toBeNull()
+  })
+
+  it('returns null for an occupied cell', () => {
+    const puzzle = FIXTURE_PUZZLES[0]
+    const state = createSolverState(puzzle.grid)
+    const filled = state.grid.findIndex((value) => value !== 0)
+    expect(findSinglePlacementProof(state, filled, 1)).toBeNull()
   })
 })
 

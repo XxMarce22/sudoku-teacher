@@ -1,6 +1,6 @@
 import { TECHNIQUE_BY_ID, techniqueLevelLabel } from '../lib/techniques'
 import type { Step } from '../lib/solver'
-import { manualPlacedCells, type Session } from '../lib/session'
+import { assumedManualMoves, manualPlacedCells, type Session } from '../lib/session'
 import { cellLabel, digitsOf, emptyCells, isSolved } from '../lib/sudoku'
 
 interface SenseiPanelProps {
@@ -27,6 +27,10 @@ function eliminationChips(step: Step) {
   }))
 }
 
+function assumptionList(moves: { cell: number; digit: number }[]): string {
+  return moves.map((move) => `${move.digit} in ${cellLabel(move.cell)}`).join(', ')
+}
+
 export function SenseiPanel({
   session,
   available,
@@ -43,8 +47,14 @@ export function SenseiPanel({
   const pendingMeta = session.pending ? TECHNIQUE_BY_ID[session.pending.technique] : null
   const selected = session.selected
   const manualCells = manualPlacedCells(session)
+  const assumedMoves = assumedManualMoves(session)
+  const assumedCells = new Set(assumedMoves.map((move) => move.cell))
   const manualMoves = session.history.filter((move) => move.kind === 'manual').length
   const feedback = session.inputFeedback
+  const feedbackAssumed =
+    feedback?.kind === 'placed' &&
+    feedback.contradiction === null &&
+    feedback.provenBy === null
 
   const uniqueAvailable: Step[] = []
   const seen = new Set<string>()
@@ -84,7 +94,7 @@ export function SenseiPanel({
             feedback.kind === 'placed' && feedback.contradiction
               ? ' feedback--warning'
               : ''
-          }`}
+          }${feedbackAssumed ? ' feedback--assumed' : ''}`}
           role={
             feedback.kind === 'rejected' ||
             (feedback.kind === 'placed' && feedback.contradiction)
@@ -93,15 +103,33 @@ export function SenseiPanel({
           }
         >
           <p className="feedback__message">{feedback.message}</p>
-          {feedback.kind === 'placed' && feedback.contradiction ? (
+          {feedback.kind === 'placed' &&
+          (feedback.contradiction || feedback.provenBy === null) ? (
             <button
               type="button"
               className="btn btn--outline btn--small"
               onClick={onUndo}
             >
-              Undo that entry
+              {feedback.contradiction
+                ? 'Undo that entry'
+                : 'Undo that assumption'}
             </button>
           ) : null}
+        </div>
+      ) : null}
+
+      {assumedMoves.length > 0 && !solved ? (
+        <div className="sensei__assumption" role="note">
+          <h3>Hints are conditional</h3>
+          <p>
+            No documented technique proves{' '}
+            {assumedMoves.length === 1 ? 'your entry' : 'these entries'}:{' '}
+            <strong>{assumptionList(assumedMoves)}</strong>. Every hint below
+            assumes {assumedMoves.length === 1 ? 'it is' : 'they are'} correct.
+            If {assumedMoves.length === 1 ? 'it is' : 'they are'} not, the hint
+            can be wrong too — undo the {assumedMoves.length === 1 ? 'entry' : 'entries'}{' '}
+            to make the board provable again.
+          </p>
         </div>
       ) : null}
 
@@ -113,9 +141,11 @@ export function SenseiPanel({
           <div>
             <h3>Puzzle solved</h3>
             <p>
-              {manualMoves > 0
-                ? `Every cell is filled — ${manualMoves === 1 ? 'one entry was yours' : `${manualMoves} entries were yours`}, the rest came from documented techniques. No guessing, no backtracking.`
-                : 'Every cell was placed with a documented technique. No guessing, no backtracking, no brute force.'}
+              {assumedMoves.length > 0
+                ? `Every cell is filled, but ${assumedMoves.length === 1 ? 'one of your entries was an assumption' : `${assumedMoves.length} of your entries were assumptions`} rather than a proven move (${assumptionList(assumedMoves)}). Treat this solution as conditional: if ${assumedMoves.length === 1 ? 'that entry is' : 'those entries are'} wrong, the board is too — I cannot certify it without guessing.`
+                : manualMoves > 0
+                  ? `Every cell is filled — ${manualMoves === 1 ? 'one entry was yours' : `${manualMoves} entries were yours`}, the rest came from documented techniques. No guessing, no backtracking.`
+                  : 'Every cell was placed with a documented technique. No guessing, no backtracking, no brute force.'}
             </p>
           </div>
         </div>
@@ -131,6 +161,16 @@ export function SenseiPanel({
           </div>
           <h3 className="step__title">{session.pending.title}</h3>
           <p className="step__explanation">{session.pending.explanation}</p>
+
+          {assumedMoves.length > 0 ? (
+            <p className="step__conditional">
+              Conditional on your unproven{' '}
+              {assumedMoves.length === 1 ? 'entry' : 'entries'}:{' '}
+              {assumptionList(assumedMoves)}. If{' '}
+              {assumedMoves.length === 1 ? 'that digit is' : 'those digits are'}{' '}
+              wrong, this move may not hold.
+            </p>
+          ) : null}
 
           {session.pending.placements.length > 0 ? (
             <ul className="step__chips" aria-label="Placements">
@@ -212,7 +252,9 @@ export function SenseiPanel({
                 {session.puzzle.grid[selected] !== 0
                   ? ' (given)'
                   : manualCells.has(selected)
-                    ? ' (yours)'
+                    ? assumedCells.has(selected)
+                      ? ' (yours, assumed)'
+                      : ' (yours)'
                     : ' (placed)'}
               </span>
             ) : session.current.candidates[selected] === 0 ? (
@@ -236,14 +278,29 @@ export function SenseiPanel({
             {[...session.history].reverse().map((move, index) => {
               const number = session.history.length - index
               if (move.kind === 'manual') {
+                const assumed = move.provenBy === null
+                const proof =
+                  move.provenBy === 'naked-single'
+                    ? 'naked single'
+                    : move.provenBy === 'hidden-single'
+                      ? 'hidden single'
+                      : null
                 return (
-                  <li key={`manual-${number}`} className="log__item--manual">
+                  <li
+                    key={`manual-${number}`}
+                    className={`log__item--manual${assumed ? ' log__item--assumed' : ''}`}
+                  >
                     <span className="log__number">{number}</span>
                     <span>
                       <strong>You</strong>
                       <span className="log__summary">
                         {' '}
                         placed {move.digit} in {cellLabel(move.cell)}
+                      </span>{' '}
+                      <span
+                        className={`log__tag ${assumed ? 'log__tag--assumed' : 'log__tag--proof'}`}
+                      >
+                        {assumed ? 'assumed' : proof}
                       </span>
                     </span>
                   </li>

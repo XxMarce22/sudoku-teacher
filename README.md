@@ -62,9 +62,18 @@ Hand-played digits are held to the dojo's standards, not exempted from them:
 
 - an entry is accepted only if the digit is still a candidate for that cell
   (no row/column/box clashes, nothing already eliminated by logic);
+- every entry is classified. If a naked single or hidden single forces that
+  digit, the entry is recorded as proven by that technique. Otherwise it is an
+  **assumption**: accepted so you can keep playing, but labelled as unproven on
+  the board and in the move log;
 - after every accepted entry the engine replays *forced logical moves only* and
   reports it immediately if it finds a provable contradiction — with a one-tap
   undo;
+- while an assumption is on the board, every hint says it is conditional on
+  your entries, and the panel lists exactly which ones. If the assumption is
+  wrong, the hint can be wrong too — the app cannot verify it without guessing.
+  The solved message likewise refuses to certify a result that rests on an
+  assumption;
 - a typed digit is still your move, not a theorem: it is labelled "You" in the
   move log and never presented as a proven deduction. When clearing an entry
   that later moves depended on, those moves are rewound with it so the board
@@ -100,7 +109,7 @@ scripts/           dev-only fixture collector (fetches + audits, never solves)
 
 ### Tests
 
-`npm test` runs 115 checks, including:
+`npm test` runs 123 checks, including:
 
 - full replays of live API puzzles, asserting every deduction agrees with the
   recorded solution and that givens are never touched;
@@ -108,6 +117,9 @@ scripts/           dev-only fixture collector (fetches + audits, never solves)
   the app must report being stuck rather than guess;
 - contradiction-probe tests: true digits never trip the probe, wrong digits it
   can prove dead ends are flagged, and hand-played entries are undone cleanly;
+- assumption regression test: a wrong-but-unprovable entry on a stalling puzzle
+  reproduces the old false "hidden single" hint, and the session marks it as an
+  assumption instead of certifying it;
 - API fallback tests with mocked network responses and abort handling.
 
 Fixtures are collected with `npm run collect-fixtures`, which fetches boards
