@@ -8,6 +8,7 @@ import {
   type Grid,
 } from '../lib/sudoku'
 import type { Step } from '../lib/solver'
+import type { InputFeedback } from '../lib/session'
 
 interface BoardProps {
   grid: Grid
@@ -16,7 +17,11 @@ interface BoardProps {
   pending: Step | null
   selected: number | null
   showCandidates: boolean
+  feedback: InputFeedback | null
+  manualCells: ReadonlySet<number>
   onSelect: (cell: number | null) => void
+  onInputDigit: (digit: number) => void
+  onClearCell: () => void
 }
 
 const DIGITS = [1, 2, 3, 4, 5, 6, 7, 8, 9]
@@ -39,7 +44,11 @@ export function Board({
   pending,
   selected,
   showCandidates,
+  feedback,
+  manualCells,
   onSelect,
+  onInputDigit,
+  onClearCell,
 }: BoardProps) {
   const buttonRefs = useRef<Array<HTMLButtonElement | null>>([])
 
@@ -65,6 +74,22 @@ export function Board({
     const current = selected ?? 0
     const row = rowOf(current)
     const col = colOf(current)
+    const plain = !event.ctrlKey && !event.metaKey && !event.altKey
+
+    if (plain && event.key >= '1' && event.key <= '9') {
+      event.preventDefault()
+      onInputDigit(Number(event.key))
+      return
+    }
+
+    if (
+      plain &&
+      (event.key === 'Backspace' || event.key === 'Delete' || event.key === '0')
+    ) {
+      event.preventDefault()
+      onClearCell()
+      return
+    }
 
     if (event.key === 'ArrowUp') {
       event.preventDefault()
@@ -91,7 +116,7 @@ export function Board({
     <div
       className="board"
       role="grid"
-      aria-label="Sudoku board"
+      aria-label="Sudoku board — arrow keys move, 1 to 9 fills the selected cell, Backspace clears"
       onKeyDown={handleKeyDown}
     >
       {grid.map((value, cell) => {
@@ -99,16 +124,23 @@ export function Board({
         const col = colOf(cell)
         const isGiven = initialGrid[cell] !== 0
         const isSolvedCell = !isGiven && value !== 0
+        const isManualCell = !isGiven && manualCells.has(cell) && value !== 0
         const isPeer = selected !== null && selected !== cell && PEERS[selected].includes(cell)
         const eliminationSet = eliminatedDigits.get(cell)
         const placement = placementByCell.get(cell)
         const colorLabel = colorByCell.get(cell)
+        const isRejected = feedback?.kind === 'rejected' && feedback.cell === cell
+        const isFlagged =
+          feedback?.kind === 'placed' &&
+          feedback.contradiction !== null &&
+          feedback.cell === cell
 
         const classes = ['cell']
         if (col === 2 || col === 5) classes.push('cell--edge-right')
         if (row === 2 || row === 5) classes.push('cell--edge-bottom')
         if (isGiven) classes.push('cell--given')
         if (isSolvedCell) classes.push('cell--solved')
+        if (isManualCell) classes.push('cell--manual')
         if (isPeer) classes.push('cell--peer')
         if (selected === cell) classes.push('cell--selected')
         if (primary.has(cell)) classes.push('cell--primary')
@@ -117,6 +149,8 @@ export function Board({
         if (placement !== undefined) classes.push('cell--placement')
         if (colorLabel === 'A') classes.push('cell--color-a')
         if (colorLabel === 'B') classes.push('cell--color-b')
+        if (isRejected) classes.push('cell--rejected')
+        if (isFlagged) classes.push('cell--flagged')
 
         const candidatesVisible =
           value === 0 && placement === undefined && showCandidates
@@ -126,7 +160,9 @@ export function Board({
           isGiven
             ? `given ${value}`
             : value !== 0
-              ? `solved ${value}`
+              ? isManualCell
+                ? `entered by you ${value}`
+                : `solved ${value}`
               : placement !== undefined
                 ? `suggested ${placement}`
                 : 'empty',
@@ -147,7 +183,7 @@ export function Board({
             className={classes.join(' ')}
             aria-label={ariaParts.join(', ')}
             aria-pressed={selected === cell}
-            onClick={() => onSelect(selected === cell ? null : cell)}
+            onClick={() => onSelect(cell)}
             onFocus={() => onSelect(cell)}
           >
             {value !== 0 ? (

@@ -55,10 +55,20 @@ export interface SolverState {
   candidates: CandidateMasks
 }
 
-export interface AppliedMove {
+export interface StepMove {
+  kind: 'step'
   step: Step
   before: SolverState
 }
+
+export interface ManualMove {
+  kind: 'manual'
+  cell: number
+  digit: number
+  before: SolverState
+}
+
+export type AppliedMove = StepMove | ManualMove
 
 const DIGITS = [1, 2, 3, 4, 5, 6, 7, 8, 9]
 
@@ -817,6 +827,90 @@ export function applySteps(
   let next = state
   for (const step of steps) next = applyStep(next, step)
   return next
+}
+
+export function applyManualDigit(
+  state: SolverState,
+  cell: number,
+  digit: number,
+): SolverState {
+  if (state.grid[cell] !== 0) {
+    throw new Error('Cannot place a digit in an occupied cell.')
+  }
+  const grid = [...state.grid]
+  const candidates = [...state.candidates]
+  grid[cell] = digit
+  candidates[cell] = 0
+  for (const peer of PEERS[cell]) {
+    candidates[peer] &= ~digitMask(digit)
+  }
+  return { grid, candidates }
+}
+
+export interface Contradiction {
+  kind: 'empty-cell' | 'missing-digit'
+  cell?: number
+  unitName?: string
+  digit?: number
+  /** Forced logical moves that were applied before the contradiction surfaced. */
+  forcedMoves: number
+}
+
+/**
+ * Checks a state for the two direct inconsistency signals of a superset
+ * candidate model: an empty cell with no candidates left, or a unit where a
+ * digit has no possible position and is not yet placed.
+ */
+export function findDirectContradiction(
+  state: SolverState,
+): Contradiction | null {
+  for (let cell = 0; cell < 81; cell += 1) {
+    if (state.grid[cell] === 0 && state.candidates[cell] === 0) {
+      return { kind: 'empty-cell', cell, forcedMoves: 0 }
+    }
+  }
+  for (const unit of ALL_UNITS) {
+    for (const digit of DIGITS) {
+      if (unit.cells.some((cell) => state.grid[cell] === digit)) continue
+      const hasPosition = unit.cells.some(
+        (cell) =>
+          state.grid[cell] === 0 && hasCandidate(state.candidates[cell], digit),
+      )
+      if (!hasPosition) {
+        return {
+          kind: 'missing-digit',
+          unitName: unit.name,
+          digit,
+          forcedMoves: 0,
+        }
+      }
+    }
+  }
+  return null
+}
+
+/**
+ * Replays forced logical moves from the given state looking for a provable
+ * contradiction. Every detector is sound, so on a board that still has a
+ * completion this returns null; a hit proves the state cannot be completed.
+ * It may still return null on an inconsistent board when the toolkit runs
+ * dry first — the probe never guesses, in either direction.
+ */
+export function findProvableContradiction(
+  state: SolverState,
+): Contradiction | null {
+  let current = state
+  let forcedMoves = 0
+  for (let guard = 0; guard < 400; guard += 1) {
+    const direct = findDirectContradiction(current)
+    if (direct) return { ...direct, forcedMoves }
+    if (isSolved(current.grid)) return null
+    const step = findNextStep(current)
+    if (!step) return null
+    current = applyStep(current, step)
+    forcedMoves += 1
+  }
+  return null
 }
 
 export function remainingCandidateCount(state: SolverState): number {

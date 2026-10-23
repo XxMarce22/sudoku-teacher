@@ -304,6 +304,44 @@
   z-index: 3;
 }
 
+.cell--manual .cell__value {
+  color: var(--accent-deep);
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.cell--rejected {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 2.5px var(--accent);
+  z-index: 4;
+  animation: cellReject 0.4s ease;
+}
+
+.cell--flagged {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 2.5px var(--red);
+  z-index: 4;
+}
+
+@keyframes cellReject {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-3px);
+  }
+  40% {
+    transform: translateX(3px);
+  }
+  60% {
+    transform: translateX(-2px);
+  }
+  80% {
+    transform: translateX(2px);
+  }
+}
+
 .cell__value {
   font-family: var(--serif);
   font-size: clamp(1.05rem, 3.3vw, 1.95rem);
@@ -622,6 +660,41 @@
   line-height: 1.5;
 }
 
+.feedback {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  padding: 10px 12px;
+  border-radius: 0 10px 10px 0;
+  border-left: 3px solid var(--indigo);
+  background: var(--paper-2);
+}
+
+.feedback__message {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.feedback--rejected {
+  border-left-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.feedback--cleared {
+  border-left-color: var(--muted);
+}
+
+.feedback--warning {
+  border-left-color: var(--red);
+  background: var(--accent-soft);
+}
+
+.feedback--warning .feedback__message {
+  color: var(--accent-deep);
+}
+
 .sensei__solved {
   display: flex;
   gap: 12px;
@@ -836,6 +909,12 @@
 
 .log__summary {
   color: var(--muted);
+}
+
+.log__item--manual .log__number {
+  border-color: var(--accent);
+  color: var(--accent-deep);
+  background: var(--accent-soft);
 }
 
 .log__count {

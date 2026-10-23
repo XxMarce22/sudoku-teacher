@@ -97,6 +97,14 @@ export function PledgeView() {
           honestly instead of guessing. Fetch another puzzle or enjoy the board
           as far as logic can take it.
         </p>
+        <p>
+          The digits you type yourself follow the same rules. The board rejects
+          entries that clash with the candidate model, and after every accepted
+          entry it replays forced logic to warn you when it can prove a
+          contradiction — with a one-tap undo. But a typed digit is your move,
+          not a proven deduction: the move log keeps them labelled as yours,
+          and clearing one also rewinds the later moves that depended on it.
+        </p>
       </section>
     </section>
   )

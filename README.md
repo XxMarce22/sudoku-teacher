@@ -13,6 +13,9 @@ generated locally, and the app never asks an API for the answer.
   ("I will not guess") instead of silently searching.
 - All 17 implemented techniques are *sound*: they never remove a candidate or
   place a digit that could contradict a valid solution.
+- Digits you type yourself are checked against the candidate model and probed
+  for provable contradictions, but they are never counted as deductions — the
+  move log labels them as yours.
 
 The full promise is spelled out in the app under **No-guess pledge**.
 
@@ -46,6 +49,27 @@ Jellyfish, XY-Wing, XYZ-Wing, Skyscraper, Simple Coloring.
 The **Techniques** view can search live puzzles for a real example of any
 technique and load it into the dojo.
 
+## Playing by hand
+
+The board is fully playable from the keyboard:
+
+- click a cell (or move with the **arrow keys**, **Home**, **End**) and type
+  **1–9** to fill it;
+- **Backspace**, **Delete**, or **0** clears the selected cell;
+- **Undo** / **Reset** and the move log cover hand-played entries too.
+
+Hand-played digits are held to the dojo's standards, not exempted from them:
+
+- an entry is accepted only if the digit is still a candidate for that cell
+  (no row/column/box clashes, nothing already eliminated by logic);
+- after every accepted entry the engine replays *forced logical moves only* and
+  reports it immediately if it finds a provable contradiction — with a one-tap
+  undo;
+- a typed digit is still your move, not a theorem: it is labelled "You" in the
+  move log and never presented as a proven deduction. When clearing an entry
+  that later moves depended on, those moves are rewound with it so the board
+  always stays logically consistent.
+
 ## Commands
 
 ```bash
@@ -68,7 +92,7 @@ src/lib/
   api.ts           Sudoku100 proxy + Sugoku/Dosuku fallbacks with validation
   cache.ts         localStorage cache of the last live puzzle
   exampleSearch.ts plays fetched puzzles until a requested technique appears
-  session.ts       session reducer: hints, apply, solve-all, undo, reset
+  session.ts       session reducer: hints, keyboard input, apply, undo, reset
   __fixtures__/    audited live puzzles for the test suite (generated)
 src/components/    Board, SenseiPanel, TechniqueLibrary, PledgeView, Header
 scripts/           dev-only fixture collector (fetches + audits, never solves)
@@ -76,12 +100,14 @@ scripts/           dev-only fixture collector (fetches + audits, never solves)
 
 ### Tests
 
-`npm test` runs 95 checks, including:
+`npm test` runs 115 checks, including:
 
 - full replays of live API puzzles, asserting every deduction agrees with the
   recorded solution and that givens are never touched;
 - honest-stall tests: puzzles the toolkit cannot finish are kept on purpose, and
   the app must report being stuck rather than guess;
+- contradiction-probe tests: true digits never trip the probe, wrong digits it
+  can prove dead ends are flagged, and hand-played entries are undone cleanly;
 - API fallback tests with mocked network responses and abort handling.
 
 Fixtures are collected with `npm run collect-fixtures`, which fetches boards

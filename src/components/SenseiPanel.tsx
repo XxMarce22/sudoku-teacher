@@ -1,6 +1,6 @@
 import { TECHNIQUE_BY_ID, techniqueLevelLabel } from '../lib/techniques'
 import type { Step } from '../lib/solver'
-import type { Session } from '../lib/session'
+import { manualPlacedCells, type Session } from '../lib/session'
 import { cellLabel, digitsOf, emptyCells, isSolved } from '../lib/sudoku'
 
 interface SenseiPanelProps {
@@ -11,6 +11,7 @@ interface SenseiPanelProps {
   onApply: () => void
   onClearPending: () => void
   onSolveAll: () => void
+  onUndo: () => void
 }
 
 function eliminationChips(step: Step) {
@@ -34,12 +35,16 @@ export function SenseiPanel({
   onApply,
   onClearPending,
   onSolveAll,
+  onUndo,
 }: SenseiPanelProps) {
   const solved = isSolved(session.current.grid)
   const filled = 81 - emptyCells(session.current.grid).length
   const progress = Math.round((filled / 81) * 100)
   const pendingMeta = session.pending ? TECHNIQUE_BY_ID[session.pending.technique] : null
   const selected = session.selected
+  const manualCells = manualPlacedCells(session)
+  const manualMoves = session.history.filter((move) => move.kind === 'manual').length
+  const feedback = session.inputFeedback
 
   const uniqueAvailable: Step[] = []
   const seen = new Set<string>()
@@ -73,6 +78,33 @@ export function SenseiPanel({
 
       {session.note ? <p className="sensei__note">{session.note}</p> : null}
 
+      {feedback ? (
+        <div
+          className={`feedback feedback--${feedback.kind}${
+            feedback.kind === 'placed' && feedback.contradiction
+              ? ' feedback--warning'
+              : ''
+          }`}
+          role={
+            feedback.kind === 'rejected' ||
+            (feedback.kind === 'placed' && feedback.contradiction)
+              ? 'alert'
+              : 'status'
+          }
+        >
+          <p className="feedback__message">{feedback.message}</p>
+          {feedback.kind === 'placed' && feedback.contradiction ? (
+            <button
+              type="button"
+              className="btn btn--outline btn--small"
+              onClick={onUndo}
+            >
+              Undo that entry
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
       {solved ? (
         <div className="sensei__solved">
           <span className="sensei__solved-mark" aria-hidden="true">
@@ -81,8 +113,9 @@ export function SenseiPanel({
           <div>
             <h3>Puzzle solved</h3>
             <p>
-              Every cell was placed with a documented technique. No guessing, no
-              backtracking, no brute force.
+              {manualMoves > 0
+                ? `Every cell is filled — ${manualMoves === 1 ? 'one entry was yours' : `${manualMoves} entries were yours`}, the rest came from documented techniques. No guessing, no backtracking.`
+                : 'Every cell was placed with a documented technique. No guessing, no backtracking, no brute force.'}
             </p>
           </div>
         </div>
@@ -176,7 +209,11 @@ export function SenseiPanel({
               <span>
                 {' '}
                 holds {session.current.grid[selected]}
-                {session.puzzle.grid[selected] !== 0 ? ' (given)' : ' (placed)'}
+                {session.puzzle.grid[selected] !== 0
+                  ? ' (given)'
+                  : manualCells.has(selected)
+                    ? ' (yours)'
+                    : ' (placed)'}
               </span>
             ) : session.current.candidates[selected] === 0 ? (
               <span> has no candidates</span>
@@ -196,15 +233,32 @@ export function SenseiPanel({
             Move log <span className="log__count">{session.history.length}</span>
           </h3>
           <ol className="log__list">
-            {[...session.history].reverse().map((move, index) => (
-              <li key={`${move.step.technique}-${session.history.length - index}`}>
-                <span className="log__number">{session.history.length - index}</span>
-                <span>
-                  <strong>{TECHNIQUE_BY_ID[move.step.technique].name}</strong>
-                  <span className="log__summary"> {move.step.summary}</span>
-                </span>
-              </li>
-            ))}
+            {[...session.history].reverse().map((move, index) => {
+              const number = session.history.length - index
+              if (move.kind === 'manual') {
+                return (
+                  <li key={`manual-${number}`} className="log__item--manual">
+                    <span className="log__number">{number}</span>
+                    <span>
+                      <strong>You</strong>
+                      <span className="log__summary">
+                        {' '}
+                        placed {move.digit} in {cellLabel(move.cell)}
+                      </span>
+                    </span>
+                  </li>
+                )
+              }
+              return (
+                <li key={`${move.step.technique}-${number}`}>
+                  <span className="log__number">{number}</span>
+                  <span>
+                    <strong>{TECHNIQUE_BY_ID[move.step.technique].name}</strong>
+                    <span className="log__summary"> {move.step.summary}</span>
+                  </span>
+                </li>
+              )
+            })}
           </ol>
         </section>
       ) : null}

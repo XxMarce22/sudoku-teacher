@@ -1,18 +1,26 @@
 import { describe, expect, it } from 'vitest'
-import { FIXTURE_PUZZLES } from './__fixtures__/puzzles'
+import { FIXTURE_PUZZLES, type FixturePuzzle } from './__fixtures__/puzzles'
 import {
+  applyManualDigit,
   applyStep,
   createSolverState,
   findAllSteps,
+  findDirectContradiction,
   findNextStep,
+  findProvableContradiction,
   type SolverState,
   type Step,
 } from './solver'
 import { TECHNIQUES, type TechniqueId } from './techniques'
 import {
+  ALL_UNITS,
+  digitMask,
+  digitsOf,
+  emptyCells,
   hasCandidate,
   isSolved,
   PEERS,
+  popcount,
   validateGrid,
   type Grid,
 } from './sudoku'
@@ -234,5 +242,144 @@ describe('first techniques on a nearly empty board', () => {
     const step = findNextStep(state)
     expect(step?.technique).toBe('hidden-single')
     expect(step?.placements).toContainEqual({ cell: 0, digit: 8 })
+  })
+})
+
+describe('applyManualDigit', () => {
+  it('fills a cell, clears its mask, and removes the digit from every peer', () => {
+    const puzzle = FIXTURE_PUZZLES.find((item) => item.solvedByLogic)
+    if (!puzzle) throw new Error('expected a logic-solvable fixture')
+    const state = createSolverState(puzzle.grid)
+    const cell = emptyCells(state.grid)[0]
+    const digit = puzzle.solution[cell]
+
+    const gridBefore = [...state.grid]
+    const candidatesBefore = [...state.candidates]
+    const after = applyManualDigit(state, cell, digit)
+
+    expect(state.grid).toEqual(gridBefore)
+    expect(state.candidates).toEqual(candidatesBefore)
+    expect(after.grid[cell]).toBe(digit)
+    expect(after.candidates[cell]).toBe(0)
+    for (const peer of PEERS[cell]) {
+      expect(hasCandidate(after.candidates[peer], digit)).toBe(false)
+    }
+  })
+
+  it('refuses to fill an occupied cell', () => {
+    const state = createSolverState(FIXTURE_PUZZLES[0].grid)
+    const filled = state.grid.findIndex((value) => value !== 0)
+    expect(() => applyManualDigit(state, filled, 1)).toThrow(/occupied/)
+  })
+})
+
+function findProvablyWrongEntry(puzzle: FixturePuzzle) {
+  const state = createSolverState(puzzle.grid)
+  for (let cell = 0; cell < 81; cell += 1) {
+    if (state.grid[cell] !== 0) continue
+    for (const digit of digitsOf(state.candidates[cell])) {
+      if (digit === puzzle.solution[cell]) continue
+      const contradiction = findProvableContradiction(
+        applyManualDigit(state, cell, digit),
+      )
+      if (contradiction) {
+        return { cell, digit, forcedMoves: contradiction.forcedMoves }
+      }
+    }
+  }
+  return null
+}
+
+describe('contradiction probe', () => {
+  const solvable = FIXTURE_PUZZLES.find((puzzle) => puzzle.solvedByLogic)
+  if (!solvable) throw new Error('expected a logic-solvable fixture')
+
+  it('stays quiet when true solution digits are entered', () => {
+    const empties = emptyCells(solvable.grid)
+    const sample = empties.filter((_, index) => index % 4 === 0)
+
+    for (const cell of sample) {
+      const state = applyManualDigit(
+        createSolverState(solvable.grid),
+        cell,
+        solvable.solution[cell],
+      )
+      expect(
+        findProvableContradiction(state),
+        `no contradiction expected after placing the solution digit in cell ${cell}`,
+      ).toBeNull()
+    }
+  })
+
+  it('flags a wrong-but-candidate digit with a provable contradiction', () => {
+    const example = findProvablyWrongEntry(solvable)
+    expect(
+      example,
+      'expected at least one candidate-consistent wrong digit to be provably contradictory',
+    ).not.toBeNull()
+    if (!example) return
+    expect(example.forcedMoves).toBeGreaterThanOrEqual(0)
+  })
+
+  it('does not invent a contradiction when the board merely stalls', () => {
+    const stalling = FIXTURE_PUZZLES.find((puzzle) => !puzzle.solvedByLogic)
+    if (!stalling) throw new Error('expected a stalling fixture')
+    const trace = playThrough(stalling.grid)
+    expect(findProvableContradiction(trace.finalState)).toBeNull()
+  })
+})
+
+describe('findDirectContradiction', () => {
+  it('is silent on valid fixture boards', () => {
+    for (const puzzle of FIXTURE_PUZZLES) {
+      expect(findDirectContradiction(createSolverState(puzzle.grid))).toBeNull()
+    }
+  })
+
+  it('sees an empty cell with no candidates', () => {
+    const state = createSolverState(FIXTURE_PUZZLES[0].grid)
+    const cell = emptyCells(state.grid)[0]
+    const candidates = [...state.candidates]
+    candidates[cell] = 0
+    const contradiction = findDirectContradiction({
+      grid: state.grid,
+      candidates,
+    })
+    expect(contradiction?.kind).toBe('empty-cell')
+    expect(contradiction?.cell).toBe(cell)
+    expect(contradiction?.forcedMoves).toBe(0)
+  })
+
+  it('sees a unit with no position left for a digit', () => {
+    const state = createSolverState(FIXTURE_PUZZLES[0].grid)
+    let target: { unitName: string; cells: number[]; digit: number } | null = null
+    for (const unit of ALL_UNITS) {
+      for (let digit = 1; digit <= 9; digit += 1) {
+        if (unit.cells.some((cell) => state.grid[cell] === digit)) continue
+        const positions = unit.cells.filter(
+          (cell) =>
+            state.grid[cell] === 0 && hasCandidate(state.candidates[cell], digit),
+        )
+        if (positions.length === 0) continue
+        const safe = positions.every(
+          (cell) => popcount(state.candidates[cell]) >= 2,
+        )
+        if (!safe) continue
+        target = { unitName: unit.name, cells: unit.cells, digit }
+        break
+      }
+      if (target) break
+    }
+    expect(target).not.toBeNull()
+    if (!target) return
+
+    const candidates = [...state.candidates]
+    for (const cell of target.cells) {
+      candidates[cell] &= ~digitMask(target.digit)
+    }
+    const contradiction = findDirectContradiction({ grid: state.grid, candidates })
+    expect(contradiction?.kind).toBe('missing-digit')
+    expect(contradiction?.unitName).toBe(target.unitName)
+    expect(contradiction?.digit).toBe(target.digit)
   })
 })

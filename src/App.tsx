@@ -19,6 +19,7 @@ import {
 } from './lib/exampleSearch'
 import {
   createSession,
+  manualPlacedCells,
   sessionReducer,
   type Session,
   type SessionAction,
@@ -184,6 +185,10 @@ export default function App() {
   }, [currentState])
 
   const solved = session ? isSolved(session.current.grid) : false
+  const manualCells = useMemo(
+    () => (session ? manualPlacedCells(session) : new Set<number>()),
+    [session],
+  )
 
   return (
     <div className="app">
@@ -255,7 +260,11 @@ export default function App() {
                   pending={session.pending}
                   selected={session.selected}
                   showCandidates={session.showCandidates}
+                  feedback={session.inputFeedback}
+                  manualCells={manualCells}
                   onSelect={(cell) => dispatch({ type: 'select', cell })}
+                  onInputDigit={(digit) => dispatch({ type: 'input-digit', digit })}
+                  onClearCell={() => dispatch({ type: 'clear-cell' })}
                 />
 
                 <div className="board-card__bottom">
@@ -299,7 +308,8 @@ export default function App() {
                     ) : null}
                   </div>
                   <p className="board-card__hint">
-                    Click a cell to inspect it. Arrow keys move around the board.
+                    Click a cell, then type 1–9 to fill it — Backspace clears.
+                    Arrow keys move around the board.
                   </p>
                 </div>
 
@@ -325,6 +335,7 @@ export default function App() {
                 onApply={() => dispatch({ type: 'apply-pending' })}
                 onClearPending={() => dispatch({ type: 'clear-pending' })}
                 onSolveAll={() => dispatch({ type: 'solve-all' })}
+                onUndo={() => dispatch({ type: 'undo' })}
               />
             </div>
           ) : (
